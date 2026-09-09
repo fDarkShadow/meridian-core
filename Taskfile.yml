@@ -1,0 +1,102 @@
+version: '3'
+
+dotenv: ['.env']
+
+vars:
+  COMPOSE: docker compose
+
+tasks:
+  default:
+    cmds:
+      - task --list
+
+  setup:
+    desc: Bootstrap local dev — start Postgres, apply migrations, build the workspace.
+    cmds:
+      - '{{.COMPOSE}} up -d postgres'
+      - task: db:up
+      - task: build
+
+  build:
+    desc: Build the Rust workspace via moon.
+    cmds:
+      - moon run :build
+
+  test:
+    desc: Run the Rust test suite via moon.
+    cmds:
+      - moon run :test
+
+  lint:
+    desc: Lint the Rust workspace (clippy + rustfmt --check).
+    cmds:
+      - moon run :lint
+      - moon run :format
+
+  fmt:
+    desc: Format the Rust workspace in place.
+    cmds:
+      - cargo fmt --all
+
+  license:check:
+    desc: Run the license/SCA scan (spec/10-licensing.md LIC-008).
+    cmds:
+      - cargo deny check
+
+  db:up:
+    desc: Apply pending database migrations.
+    cmds:
+      - dbmate up
+
+  db:down:
+    desc: Roll back the last database migration.
+    cmds:
+      - dbmate down
+
+  db:new:
+    desc: 'Create a new migration. Usage: task db:new -- add_node_runs'
+    cmds:
+      - dbmate new {{.CLI_ARGS}}
+
+  db:status:
+    desc: Show migration status.
+    cmds:
+      - dbmate status
+
+  db:dump:
+    desc: Dump the current schema to db/schema.sql.
+    cmds:
+      - dbmate dump
+
+  db:docs:
+    desc: Regenerate schema documentation from the live database with tbls.
+    cmds:
+      - tbls doc --rm ./docs/db
+
+  db:docs:check:
+    desc: Fail if committed schema docs have drifted from the live schema.
+    cmds:
+      - tbls diff
+
+  docker:build:
+    desc: Build all container images via docker buildx bake.
+    cmds:
+      - docker buildx bake
+
+  docker:push:
+    desc: Build and push all container images via docker buildx bake.
+    cmds:
+      - docker buildx bake --push
+
+  ci:
+    desc: Run the same checks CI runs, locally.
+    cmds:
+      - task: lint
+      - task: test
+      - task: license:check
+      - task: db:docs:check
+
+  down:
+    desc: Stop local dev services.
+    cmds:
+      - '{{.COMPOSE}} down'

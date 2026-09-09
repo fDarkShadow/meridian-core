@@ -1,0 +1,38 @@
+# cargo-deny configuration — CI license/SCA scan (spec/10-licensing.md, LIC-008).
+# Run with: cargo deny check
+# Incompatible copyleft dependencies must never be introduced (LIC-008); this file is the
+# enforcement point, not just documentation.
+
+[graph]
+targets = []
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+# Allowlist: permissive licenses compatible with BSL -> Apache-2.0 relicensing (LIC-004).
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+]
+# Anything not explicitly allowed (including GPL/AGPL/LGPL/SSPL-style copyleft) fails CI.
+confidence-threshold = 0.8
+
+[bans]
+version = 2
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

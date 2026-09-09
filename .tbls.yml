@@ -1,0 +1,12 @@
+dsn: ${DATABASE_URL}
+docPath: docs/db
+
+er:
+  format: svg
+  distance: 1
+
+lint:
+  requireColumnComment:
+    enabled: false
+  requireTableComment:
+    enabled: false
