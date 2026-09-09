@@ -1,36 +1,18 @@
-//! The `Secret<T>` taint-tracked type (`INV-007`, `DAT-012`).
-//!
-//! Wraps a value so it can never be observed through `Debug`/`Display`, and so that values
-//! derived from it stay wrapped too, per `INV-007`'s taint-propagation requirement.
-//!
-//! `expose_secret` is the one explicit, greppable way to reach the inner value. It exists
-//! because no host-mediated I/O capability exists yet to gate it. Once the capability
-//! described in `spec/03-node-protocol.md` (`PROTO-003`) and `SEC-007` exists, access MUST be
-//! routed through that capability instead of this method's current public visibility. This
-//! type does not by itself implement envelope encryption, `SecretProvider`, or egress-scope —
-//! see `spec/04-secrets-security.md` for those.
-
 use std::fmt;
 
-/// A value that must never appear in a log, an output, a model context, or the IR in plain
-/// form (`INV-007`).
 pub struct Secret<T>(T);
 
 impl<T> Secret<T> {
-    /// Wraps `value`, tainting it.
     pub fn new(value: T) -> Self {
         Self(value)
     }
 
-    /// The one explicit path to the inner value. See the module docs for why this exists and
-    /// what it is expected to become.
+    // Sole unwrap path, pending the host I/O capability (spec/03-node-protocol.md) that
+    // should gate it instead once it exists.
     pub fn expose_secret(&self) -> &T {
         &self.0
     }
 
-    /// Derives a new value from the secret while keeping the result tainted, so transforming a
-    /// secret does not accidentally launder it into a plain value (`INV-007`: "taint MUST
-    /// propagate to derived values").
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Secret<U> {
         Secret(f(self.0))
     }

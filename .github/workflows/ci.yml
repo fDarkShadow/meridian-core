@@ -47,12 +47,23 @@ jobs:
       - name: Install moon
         run: curl -fsSL https://moonrepo.dev/install/moon.sh | bash
       - run: echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - name: Check for migrations
+        id: migrations
+        run: |
+          if compgen -G "db/migrations/*.sql" > /dev/null; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Install dbmate
+        if: steps.migrations.outputs.present == 'true'
         run: |
           sudo curl -fsSL -o /usr/local/bin/dbmate \
             https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-amd64
           sudo chmod +x /usr/local/bin/dbmate
-      - run: dbmate up
+      - name: Apply migrations
+        if: steps.migrations.outputs.present == 'true'
+        run: dbmate up
       - run: moon run :test
 
   db-docs:
@@ -74,16 +85,32 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Check for migrations
+        id: migrations
+        run: |
+          if compgen -G "db/migrations/*.sql" > /dev/null; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Install dbmate
+        if: steps.migrations.outputs.present == 'true'
         run: |
           sudo curl -fsSL -o /usr/local/bin/dbmate \
             https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-amd64
           sudo chmod +x /usr/local/bin/dbmate
-      - run: dbmate up
+      - name: Apply migrations
+        if: steps.migrations.outputs.present == 'true'
+        run: dbmate up
       - name: Install tbls
+        if: steps.migrations.outputs.present == 'true'
         run: curl -sL https://raw.githubusercontent.com/k1LoW/tbls/main/install.sh | sh -s -- -b /usr/local/bin
       - name: Fail if docs/db has drifted from the live schema (DAT-* PRs must run `task db:docs`)
+        if: steps.migrations.outputs.present == 'true'
         run: tbls diff
+      - name: No migrations yet
+        if: steps.migrations.outputs.present == 'false'
+        run: echo "Skipping — db/migrations/ is empty until the first DAT-* PR."
 
   license:
     name: License / SCA scan (LIC-008)
@@ -92,7 +119,8 @@ jobs:
       - uses: actions/checkout@v4
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
-      - run: cargo install cargo-deny --locked
+      # Pinned: cargo-deny releases newer than this need a rustc newer than rust-toolchain.toml.
+      - run: cargo install cargo-deny --locked --version 0.17.0
       - run: cargo deny check
 
   docker:
