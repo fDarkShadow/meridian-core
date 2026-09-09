@@ -1,11 +1,11 @@
 $schema: 'https://moonrepo.dev/schemas/project.json'
 
-layer: 'application'
+layer: 'library'
 language: 'rust'
 
 tasks:
   build:
-    command: 'cargo build -p meridian-core'
+    command: 'cargo build -p meridian-types'
     inputs:
       - 'src/**/*'
       - 'Cargo.toml'
@@ -13,19 +13,19 @@ tasks:
       - '/Cargo.lock'
 
   test:
-    command: 'cargo test -p meridian-core'
+    command: 'cargo test -p meridian-types'
     deps: ['build']
     inputs:
       - 'src/**/*'
       - 'Cargo.toml'
 
   lint:
-    command: 'cargo clippy -p meridian-core --all-targets -- -D warnings'
+    command: 'cargo clippy -p meridian-types --all-targets -- -D warnings'
     inputs:
       - 'src/**/*'
       - 'Cargo.toml'
 
   format:
-    command: 'cargo fmt -p meridian-core -- --check'
+    command: 'cargo fmt -p meridian-types -- --check'
     inputs:
       - 'src/**/*'

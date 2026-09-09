@@ -27,9 +27,15 @@ allow = [
 ]
 # Anything not explicitly allowed (including GPL/AGPL/LGPL/SSPL-style copyleft) fails CI.
 confidence-threshold = 0.8
+# Our own crates are BUSL-1.1 by design (LIC-001) — that's not a blanket allow for a
+# third-party BUSL dependency (which LIC-008 wants reviewed individually), so it's scoped
+# per-crate here instead of added to `allow`. New internal crates need an entry too.
+exceptions = [
+    { allow = ["BUSL-1.1"], crate = "meridian-core" },
+    { allow = ["BUSL-1.1"], crate = "meridian-types" },
+]
 
 [bans]
-version = 2
 multiple-versions = "warn"
 wildcards = "deny"
 

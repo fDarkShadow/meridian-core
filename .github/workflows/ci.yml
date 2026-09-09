@@ -13,7 +13,11 @@ jobs:
     name: Lint (clippy + rustfmt)
     runs-on: ubuntu-latest
     steps:
+      # moon diffs against the base branch for its task graph/cache; needs full history,
+      # not actions/checkout's default shallow clone.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       # rust-toolchain.toml pins channel/components/targets; rustup honors it automatically.
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
@@ -42,17 +46,30 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
       - name: Install moon
         run: curl -fsSL https://moonrepo.dev/install/moon.sh | bash
       - run: echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - name: Check for migrations
+        id: migrations
+        run: |
+          if compgen -G "db/migrations/*.sql" > /dev/null; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Install dbmate
+        if: steps.migrations.outputs.present == 'true'
         run: |
           sudo curl -fsSL -o /usr/local/bin/dbmate \
             https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-amd64
           sudo chmod +x /usr/local/bin/dbmate
-      - run: dbmate up
+      - name: Apply migrations
+        if: steps.migrations.outputs.present == 'true'
+        run: dbmate up
       - run: moon run :test
 
   db-docs:
@@ -74,26 +91,50 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: Check for migrations
+        id: migrations
+        run: |
+          if compgen -G "db/migrations/*.sql" > /dev/null; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Install dbmate
+        if: steps.migrations.outputs.present == 'true'
         run: |
           sudo curl -fsSL -o /usr/local/bin/dbmate \
             https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-amd64
           sudo chmod +x /usr/local/bin/dbmate
-      - run: dbmate up
+      - name: Apply migrations
+        if: steps.migrations.outputs.present == 'true'
+        run: dbmate up
       - name: Install tbls
+        if: steps.migrations.outputs.present == 'true'
         run: curl -sL https://raw.githubusercontent.com/k1LoW/tbls/main/install.sh | sh -s -- -b /usr/local/bin
       - name: Fail if docs/db has drifted from the live schema (DAT-* PRs must run `task db:docs`)
+        if: steps.migrations.outputs.present == 'true'
         run: tbls diff
+      - name: No migrations yet
+        if: steps.migrations.outputs.present == 'false'
+        run: echo "Skipping — db/migrations/ is empty until the first DAT-* PR."
 
   license:
     name: License / SCA scan (LIC-008)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: rustup show
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo install cargo-deny --locked
-      - run: cargo deny check
+      # Prebuilt binary, not `cargo install`: cargo-deny is a standalone tool and has no
+      # reason to be constrained by rust-toolchain.toml's pinned rustc version. Compiling it
+      # from source with an old cargo-deny (to satisfy an old rustc) also breaks over time as
+      # the live RustSec advisory-db picks up entries an old cargo-deny/rustsec can't parse
+      # (e.g. CVSS v4.0 scoring) -- this job doesn't build our crates, so it doesn't need our
+      # toolchain at all.
+      - name: Install cargo-deny
+        run: |
+          curl -fsSL \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz" \
+            | tar -xz --strip-components=1 -C /usr/local/bin --wildcards '*/cargo-deny'
+      - run: cargo-deny check
 
   docker:
     name: Docker bake
