@@ -4,5 +4,5 @@ projects:
   - 'crates/*'
 
 vcs:
-  provider: 'git'
+  provider: 'github'
   defaultBranch: 'main'
