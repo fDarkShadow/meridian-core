@@ -1,0 +1,31 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+type: 'library'
+language: 'rust'
+
+tasks:
+  build:
+    command: 'cargo build -p meridian-types'
+    inputs:
+      - 'src/**/*'
+      - 'Cargo.toml'
+      - '/Cargo.toml'
+      - '/Cargo.lock'
+
+  test:
+    command: 'cargo test -p meridian-types'
+    deps: ['build']
+    inputs:
+      - 'src/**/*'
+      - 'Cargo.toml'
+
+  lint:
+    command: 'cargo clippy -p meridian-types --all-targets -- -D warnings'
+    inputs:
+      - 'src/**/*'
+      - 'Cargo.toml'
+
+  format:
+    command: 'cargo fmt -p meridian-types -- --check'
+    inputs:
+      - 'src/**/*'
