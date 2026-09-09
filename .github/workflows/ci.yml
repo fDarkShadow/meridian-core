@@ -123,11 +123,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: rustup show
-      - uses: Swatinem/rust-cache@v2
-      # Pinned: cargo-deny releases newer than this need a rustc newer than rust-toolchain.toml.
-      - run: cargo install cargo-deny --locked --version 0.17.0
-      - run: cargo deny check
+      # Prebuilt binary, not `cargo install`: cargo-deny is a standalone tool and has no
+      # reason to be constrained by rust-toolchain.toml's pinned rustc version. Compiling it
+      # from source with an old cargo-deny (to satisfy an old rustc) also breaks over time as
+      # the live RustSec advisory-db picks up entries an old cargo-deny/rustsec can't parse
+      # (e.g. CVSS v4.0 scoring) -- this job doesn't build our crates, so it doesn't need our
+      # toolchain at all.
+      - name: Install cargo-deny
+        run: |
+          curl -fsSL \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.18.3/cargo-deny-0.18.3-x86_64-unknown-linux-musl.tar.gz" \
+            | tar -xz --strip-components=1 -C /usr/local/bin --wildcards '*/cargo-deny'
+      - run: cargo-deny check
 
   docker:
     name: Docker bake
