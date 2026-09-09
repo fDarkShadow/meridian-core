@@ -1,114 +1,135 @@
-# Meridian — contexte projet (à lire en premier)
+# Meridian — project context (read this first)
 
-> **Nom de code : Meridian.** Remplacer partout par le nom définitif quand il sera choisi.
+> **Code name: Meridian.** Replace it everywhere once the final name is chosen.
 
-Meridian est un **moteur d'orchestration de workflows durable, source-available**.
-Principe fondateur : **le workflow est une donnée (un graphe déclaratif interprété), pas du code.**
-Le moteur *interprète* un graphe ; il ne rejoue jamais du code impératif.
+Meridian is a **durable, source-available workflow orchestration engine**.
+Founding principle: **a workflow is data (a declarative graph, interpreted), not code.**
+The engine *interprets* a graph; it never replays imperative code.
 
-Ce fichier est le contrat de travail. Les détails vivent dans `spec/`. **Avant d'écrire du
-code sur un domaine, lis le fichier `spec/` correspondant.** Ne ré-ouvre pas une décision
-déjà figée : si une contrainte te gêne, signale-le, ne la contourne pas silencieusement.
+This file is the working contract. Details live in `spec/`. **Before writing code in a given
+domain, read the matching `spec/` file.** Do not reopen a decision that is already settled: if
+a constraint gets in your way, say so — do not silently work around it.
 
----
-
-## Les invariants non-négociables (voir `spec/00-invariants.md`)
-
-Ces règles ne se violent jamais. Si une implémentation semble l'exiger, c'est
-l'implémentation qui est fausse — pas l'invariant.
-
-1. **Frontière durable / best-effort.** Tout mécanisme est soit durable (transactionnel,
-   source de vérité), soit best-effort (transitoire, rattrapable). Jamais entre les deux.
-2. **Postgres est la SEULE source de vérité.** NATS ne transporte que la *notification*
-   d'un fait déjà rendu durable — jamais le fait lui-même. Rien ne lit NATS pour connaître
-   la vérité.
-3. **Durabilité aux frontières de node.** L'état est cohérent *entre* les nodes, jamais au
-   milieu de l'un. La frontière de node est le seul point d'interruption/reprise sûr.
-4. **Idempotence interne obligatoire** par `(execution_id, node_id, iteration_index, attempt)`.
-   Upsert conditionné dessus. Non déléguable à l'auteur du pipeline.
-5. **At-least-once** sur l'exécution (side-effects possiblement rejoués). Une **garde
-   d'idempotence à la réception** jette le travail déjà terminal venu du bus.
-6. **Primitives de contrôle = ensemble FERMÉ possédé par le core.** Les Tasks (nodes-feuilles)
-   sont ouvertes (plugins WASM). Les macros se *compilent* en primitives. Un plugin n'ajoute
-   JAMAIS une primitive de contrôle.
-7. **Secret = type taint-tracké.** La matière secrète et les champs `sensitive` ne circulent
-   jamais en clair loggable. La regex de sortie n'est qu'un filet.
-8. **Terminaison garantie.** Toute exécution atteint un état terminal en temps borné
-   (3 bornes : ack-wait, timeout node, TTL exécution). Aucun chemin vers le blocage éternel.
-9. **Pas de passe-droit.** Toute interface (GUI, CLI, MCP) est un *consommateur de l'API*.
-   Aucune ne dispose d'un pouvoir que l'API n'expose pas, ni d'un chemin qui échappe au
-   RBAC / scope tenant / RLS / audit.
-10. **Egress médié.** Un node ne fait jamais d'I/O directe : il *décrit* l'appel, le host
-    injecte le credential hors sandbox, l'egress est allowlisté *par credential*.
+Every requirement in `spec/` is written in EARS syntax with RFC 2119 keywords, carries a
+stable ID, and maps 1:1 to a GitHub issue and then to one PR. See `spec/CONVENTIONS.md` before
+touching any spec file or opening an issue against one.
 
 ---
 
-## Stack (décidée)
+## Non-negotiable invariants (see `spec/00-invariants.md`)
 
-| Couche | Choix | Notes |
+These rules are never violated. If an implementation seems to require violating one, the
+implementation is wrong.
+
+1. **Durable / best-effort boundary.** Every mechanism is either durable (transactional,
+   source of truth) or best-effort (transient, recoverable). Never in between.
+2. **Postgres is the ONLY source of truth.** NATS carries only the *notification* of an
+   already-durable fact — never the fact itself. Nothing reads NATS to learn the truth.
+3. **Durability at node boundaries.** State is consistent *between* nodes, never in the middle
+   of one. The node boundary is the only safe interruption/resume point.
+4. **Mandatory internal idempotence** keyed by `(execution_id, node_id, iteration_index,
+   attempt)`. Resume is an upsert conditioned on that key. Not delegable to the pipeline
+   author.
+5. **At-least-once** execution (side effects may be replayed). A **reception-time idempotence
+   guard** discards already-terminal work arriving from the bus.
+6. **Control primitives = a CLOSED set owned by the core.** Tasks (leaf nodes) are open
+   (WASM plugins). Macros *compile* into primitives. A plugin NEVER adds a control primitive.
+7. **Secret = a taint-tracked type.** Secret material and `sensitive` fields never circulate
+   in a loggable, plain form. The output regex is only a safety net.
+8. **Guaranteed termination.** Every execution reaches a terminal state in bounded time (3
+   bounds: ack-wait, node timeout, execution TTL). No path leads to permanent blocking.
+9. **No bypass.** Every interface (GUI, CLI, MCP) is an *API consumer*. None holds a capability
+   the API does not expose, nor a path that escapes RBAC / tenant scope / RLS / audit.
+10. **Host-mediated egress.** A node never performs direct I/O: it *describes* the call, the
+    host injects the credential outside the sandbox, egress is allowlisted *per credential*.
+
+Full EARS/RFC 2119 statements for each of these: `spec/00-invariants.md` (`INV-001`…`INV-011`).
+
+---
+
+## Stack (decided)
+
+| Layer | Choice | Notes |
 |---|---|---|
-| Source de vérité | **PostgreSQL** (self-managed, CloudNativePG) | 3 replicas synchrones, anti-affinité |
-| Transport / nerf | **NATS JetStream** | dispatch, triggers, progress, Object Store |
-| Stockage objets | **RustFS** (S3-compatible, self-hosted) | blobs WASM, payloads binaires, archives WAL |
-| Exécution de node | **WASM in-process** (Wasmtime / Extism) | Component Model / WIT pour l'interface |
-| Protocole core↔node | **gRPC / WIT** | pas d'API REST « lisible » requise |
-| Format de définition | **JSON + sémantique ASL** (Amazon States Language) | YAML accepté en authoring → compilé en IR |
-| Expressions | **JSONata** (ou CEL) — sandboxé, non-Turing-complet | field-access sans moteur de template maison |
-| Provider (start) | **OVHcloud** | portable ; voir `spec/07-infra.md` |
-| Réseau | **Cilium** (CNI + mesh, eBPF) + WireGuard partout | Gateway API ; pas d'Istio sauf besoin L7 avancé |
-| IdP | **Keycloak** côté nous ; core **IdP-agnostique** (OIDC/OAuth 2.1) | mapper rôle→permission dans le core |
-| Détection | Tetragon (runtime) + CrowdSec (nord-sud) + Wazuh (SIEM) + Vector | |
-| Licence | **BSL** jour-zéro → Apache 2.0 (bascule 4 ans glissante) | CLA obligatoire ; voir `spec/10-licensing.md` |
+| Source of truth | **PostgreSQL** (self-managed, CloudNativePG) | 3 synchronous replicas, anti-affinity |
+| Transport / nervous system | **NATS JetStream** | dispatch, triggers, progress, Object Store |
+| Object storage | **RustFS** (S3-compatible, self-hosted) | WASM blobs, binary payloads, WAL archives |
+| Node execution | **In-process WASM** (Wasmtime / Extism) | Component Model / WIT for the interface |
+| Core↔node protocol | **gRPC / WIT** | no "human-readable" REST API required |
+| Definition format | **JSON with ASL semantics** (Amazon States Language) | YAML accepted for authoring → compiled to IR |
+| Expressions | **JSONata** (or CEL) — sandboxed, non-Turing-complete | field access, no custom template engine |
+| Provider (start) | **OVHcloud** | portable; see `spec/07-infra.md` |
+| Network | **Cilium** (CNI + mesh, eBPF) + WireGuard everywhere | Gateway API; no Istio unless advanced L7 is needed |
+| IdP | **Keycloak** on our side; core is **IdP-agnostic** (OIDC/OAuth 2.1) | role→permission mapper lives in the core |
+| Detection | Tetragon (runtime) + CrowdSec (north-south) + Wazuh (SIEM) + Vector | |
+| License | **BSL** from day zero → Apache 2.0 (4-year rolling change date) | CLA mandatory; see `spec/10-licensing.md` |
 
-**Convention de langue :** prose et commentaires en français ; identifiants de code, noms de
-tables/colonnes, états et scopes en anglais (`node_runs`, `leased_until`, `execution:kill`…).
-
----
-
-## Le contrat de core (la ligne qui fait tout tenir)
-
-Le core possède quatre choses ; la GUI/les éditeurs n'en possèdent AUCUNE :
-(a) le schéma de graphe, (b) le modèle de données/items, (c) la sémantique
-d'expressions/référencement, (d) le protocole d'exécution de node.
-Toute autre surface (GUI, CLI, MCP, éditeurs tiers) est un *client* de ce contrat.
-Le core exprime l'autorisation en **permissions internes** ; l'IdP est traduit une seule
-fois à l'entrée par le mapper (`spec/09-mcp-auth.md`).
-
-**State-machine dans le core, projection dataflow dans l'éditeur.** Le core est rigoureux
-(ASL) ; l'ergonomie « flow » est une projection de la GUI, pas une sémantique du core.
+**Language convention:** everything is in English — prose, comments, identifiers, table/column
+names, states, and scopes alike (`node_runs`, `leased_until`, `execution:kill`, …).
 
 ---
 
-## Comment travailler sur ce repo
+## The core contract (the line that holds everything together)
 
-- **Lis le `spec/` du domaine avant de coder.** Plusieurs peuvent s'appliquer.
-- **Respecte les colonnes réservées v1** (`spec/02-data-model.md`) : elles sont dans la clé,
-  le type ou l'enum. Les ajouter après coup = migration douloureuse ou réinterprétation
-  d'historique. Ne les omets jamais « pour aller vite ».
-- **Idempotence et durabilité d'abord.** Tout code qui touche l'état d'exécution doit être
-  correct sous crash/redelivery avant d'être optimisé.
-- **Ne mets jamais de secret dans un log, un output, un contexte de modèle, ou l'IR.**
-  Utilise le type `Secret<T>` taint-tracké.
-- **Quand tu hésites entre « simple mais viole un invariant » et « plus de travail mais
-  correct », choisis correct** et explique le surcoût.
-- Chaque PR est relue par un humain (protégeabilité + provenance, voir `spec/10-licensing.md`).
-  Un scan de licence (SCA) tourne en CI : n'introduis pas de dépendance copyleft incompatible.
+The core owns four things; the GUI/editors own NONE of them:
+(a) the graph schema, (b) the data/item model, (c) expression/referencing semantics,
+(d) the node execution protocol.
+Every other surface (GUI, CLI, MCP, third-party editors) is a *client* of this contract.
+The core expresses authorization as **internal permissions**; the IdP is translated exactly
+once at the boundary by the mapper (`spec/09-mcp-auth.md`).
+
+**State machine in the core, dataflow projection in the editor.** The core is rigorous (ASL);
+"flow" ergonomics are a GUI projection, never a core semantic.
 
 ---
 
-## Index des specs
+## How to work on this repo
 
-| Fichier | Domaine |
+- **Read the matching `spec/` domain file before coding.** Several may apply.
+- **Read `spec/CONVENTIONS.md` before touching a requirement.** Every requirement is one
+  GitHub issue; every issue is closed by one PR; **review and merge are manual** — no
+  auto-merge, no bot approval substitutes for a human reviewer (see `LIC-007`).
+- **Respect the v1 reserved columns** (`spec/02-data-model.md`): they live in the key, the
+  type, or an enum. Adding them later means a painful migration or reinterpreting history.
+  Never omit them "to move faster".
+- **Idempotence and durability first.** Any code touching execution state must be correct
+  under crash/redelivery before it is optimized.
+- **Never put a secret in a log, an output, a model context, or the IR.** Use the
+  taint-tracked `Secret<T>` type.
+- **When torn between "simple but violates an invariant" and "more work but correct", choose
+  correct** and explain the extra cost in the PR description.
+- Every PR is reviewed by a human (protectability + provenance, see `spec/10-licensing.md`).
+  A license scan (SCA) runs in CI: never introduce an incompatible copyleft dependency.
+
+---
+
+## Requirement → issue → PR workflow
+
+1. Every normative statement in `spec/00`–`spec/10` has a stable ID (`INV-001`, `DAT-003`, …).
+2. Each ID becomes exactly one GitHub issue, titled `<ID>: <short title>`, labeled with its
+   domain (`spec:DAT`) and its phase (`phase:1`) per `spec/11-build-order.md`.
+3. Each issue is closed by exactly one PR (grouping is allowed only when requirements are
+   inseparable at the implementation level — see `spec/CONVENTIONS.md`).
+4. The PR states which requirement ID(s) it satisfies and which verification method (Test /
+   Inspection / Analysis / Demonstration) it used.
+5. A human reviews and merges by hand. No auto-merge.
+
+---
+
+## Spec index
+
+| File | Domain |
 |---|---|
-| `spec/00-invariants.md` | Les règles non-négociables (détaillées) |
-| `spec/01-execution-model.md` | Sémantique ASL, primitives fermées, macros, expressions |
-| `spec/02-data-model.md` | Schéma v1, colonnes réservées, states, content-addressing |
-| `spec/03-node-protocol.md` | WASM in-process, WIT, host-mediated I/O, cycle de vie |
-| `spec/04-secrets-security.md` | SecretProvider, envelope encryption, taint, egress-scope |
-| `spec/05-observability.md` | Audit hash-chaîné, outbox, logs OTel, rétention |
-| `spec/06-durability-lifecycle.md` | Baux, réconciliateur, Map, annulation, HITL, webhooks |
-| `spec/07-infra.md` | Cluster, CNPG, réseau Cilium, tenant hard GitOps, backups |
-| `spec/08-security-detection.md` | Tetragon, CrowdSec, Wazuh, Vector, angles morts |
-| `spec/09-mcp-auth.md` | MCP consommateur d'API, OIDC, mapper rôle→permission |
-| `spec/10-licensing.md` | BSL, CLA, en-têtes de fichier, provenance IA |
-| `spec/11-build-order.md` | Ordre d'implémentation suggéré + sujets ouverts |
+| `spec/CONVENTIONS.md` | Requirement ID scheme, EARS patterns, RFC 2119 usage, issue/PR workflow |
+| `spec/00-invariants.md` | The non-negotiable rules (detailed, `INV-*`) |
+| `spec/01-execution-model.md` | ASL semantics, closed primitives, macros, expressions (`EXE-*`) |
+| `spec/02-data-model.md` | v1 schema, reserved columns, states, content-addressing (`DAT-*`) |
+| `spec/03-node-protocol.md` | In-process WASM, WIT, host-mediated I/O, lifecycle (`PROTO-*`) |
+| `spec/04-secrets-security.md` | SecretProvider, envelope encryption, taint, egress-scope (`SEC-*`) |
+| `spec/05-observability.md` | Hash-chained audit, outbox, OTel logs, retention (`OBS-*`) |
+| `spec/06-durability-lifecycle.md` | Leases, reconciler, Map, cancellation, HITL, webhooks (`LIFE-*`) |
+| `spec/07-infra.md` | Cluster, CNPG, Cilium networking, tenant hard-isolation GitOps, backups (`INFRA-*`) |
+| `spec/08-security-detection.md` | Tetragon, CrowdSec, Wazuh, Vector, blind spots (`DET-*`) |
+| `spec/09-mcp-auth.md` | MCP as API consumer, OIDC, role→permission mapper (`MCP-*`) |
+| `spec/10-licensing.md` | BSL, CLA, file headers, AI provenance (`LIC-*`) |
+| `spec/11-build-order.md` | Suggested implementation order, phase→requirement traceability, open topics |
