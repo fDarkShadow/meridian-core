@@ -67,7 +67,7 @@ deny-by-default policies (access — an unfiltered `SELECT` must not leak cross-
   pins the compiled IR hash so a 30-day-old in-flight execution resumes against the version it
   started with; `replay_of` records replay lineage as a new linked run, never a mutation.
 - **Verification:** Inspection (schema migration defines exactly these columns).
-- **Depends on:** INV-008, EXE-008, LIFE-025
+- **Depends on:** INV-008, EXE-008, LIFE-028
 
 #### DAT-006 — `map_state` reserved columns
 
