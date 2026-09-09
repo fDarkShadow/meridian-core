@@ -13,7 +13,11 @@ jobs:
     name: Lint (clippy + rustfmt)
     runs-on: ubuntu-latest
     steps:
+      # moon diffs against the base branch for its task graph/cache; needs full history,
+      # not actions/checkout's default shallow clone.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       # rust-toolchain.toml pins channel/components/targets; rustup honors it automatically.
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
@@ -42,6 +46,8 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
       - name: Install moon
